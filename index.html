@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>theFall | v1.1</title>
+    <title>theFall | v1.2</title>
     <style>
         /* 重置預設樣式並設置全螢幕黑色背景 */
         body, html {
@@ -346,7 +346,7 @@
             engine.gravity.x = 0;
             engine.gravity.y = 1.5; 
             
-            // 等待方塊墜出畫面後進行重置 (改為 3 秒)
+            // 縮短等待時間（從 3000 改為 1200 毫秒），讓新方塊提早 fade in，減少畫面全黑的時間
             setTimeout(() => {
                 // 清除物理世界中的舊方塊
                 Composite.remove(world, boxes);
@@ -367,7 +367,7 @@
                 createGrid(() => {
                     appState = 'live'; // 生長完畢後重新回到等待破碎的狀態
                 });
-            }, 3000);
+            }, 1200);
         }
 
         canvas.addEventListener('pointermove', (e) => {
