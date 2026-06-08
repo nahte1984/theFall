@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>theFall</title>
+    <title>theFall | v1.1</title>
     <style>
         /* 重置預設樣式並設置全螢幕黑色背景 */
         body, html {
@@ -38,21 +38,14 @@
             z-index: 10;
         }
 
-        /* 白底長方形圓角按鈕 */
+        /* 載入圖片按鈕 */
         #start-btn {
-            padding: 15px 40px;
-            border-radius: 8px;
-            background-color: #fff;
-            border: 2px solid #fff;
-            color: #000;
-            font-size: 16px;
             cursor: pointer;
-            box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
-            display: flex;
-            justify-content: center;
-            align-items: center;
             transition: transform 0.2s, opacity 0.5s;
             pointer-events: auto;
+            /* 防止圖片在手機或滑鼠點擊時被選取或拖曳 */
+            user-select: none;
+            -webkit-user-drag: none;
         }
 
         #start-btn:active {
@@ -64,6 +57,8 @@
             display: none;
         }
     </style>
+    <!-- 引入 Tailwind CSS 確保 class 生效 -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <!-- 引入 Matter.js 物理引擎 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
 </head>
@@ -71,7 +66,7 @@
 
     <!-- UI 介面 -->
     <div id="ui-layer">
-        <button id="start-btn">theFall</button>
+        <img id="start-btn" src="fall.png" class="max-w-[30%] max-h-[30%]">
     </div>
 
     <!-- 主要渲染畫布 -->
