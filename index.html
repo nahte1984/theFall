@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>碎裂的鏡像與重力</title>
+    <title>theFall</title>
     <style>
         /* 重置預設樣式並設置全螢幕黑色背景 */
         body, html {
@@ -17,11 +17,12 @@
             font-family: sans-serif;
         }
 
-        /* 畫布設定 */
+        /* 畫布設定，保持透明以顯示 body 的背景 SVG */
         canvas {
             display: block;
             width: 100%;
             height: 100%;
+            background-color: transparent; 
         }
 
         /* UI 層：用來放置按鈕 */
@@ -37,15 +38,14 @@
             z-index: 10;
         }
 
-        /* 白底圓框按鈕 */
+        /* 白底長方形圓角按鈕 */
         #start-btn {
-            width: 100px;
-            height: 100px;
-            border-radius: 50%;
+            padding: 15px 40px;
+            border-radius: 8px;
             background-color: #fff;
             border: 2px solid #fff;
             color: #000;
-            font-size: 18px;
+            font-size: 16px;
             cursor: pointer;
             box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
             display: flex;
@@ -71,7 +71,7 @@
 
     <!-- UI 介面 -->
     <div id="ui-layer">
-        <button id="start-btn">click!</button>
+        <button id="start-btn">theFall</button>
     </div>
 
     <!-- 主要渲染畫布 -->
@@ -118,6 +118,7 @@
         
         let isLive = false;
         let isFrozen = false;
+        let appState = 'init'; // 狀態機：init, live, shattered, clearing, growing
 
         // 滑鼠拖曳約束
         let mouseConstraint = null;
@@ -137,9 +138,8 @@
         }
         createWalls();
 
-        // 建立方塊網格
-        function createGrid() {
-            // 方塊固定 50px
+        // 建立方塊網格 (修改為同時生成，利用透明度 Fade-in)
+        function createGrid(callback) {
             boxSize = 50;
             
             // 計算欄數與列數，填滿上半部 50%
@@ -155,20 +155,20 @@
                 for (let c = 0; c < cols; c++) {
                     const x = gridStartX + c * boxSize;
                     const y = gridStartY + r * boxSize;
-                    // 使用精確的 boxSize，不留間隙
                     const box = Bodies.rectangle(x, y, boxSize, boxSize, {
-                        isStatic: true, // 初始設定為靜態
+                        isStatic: true, 
                         friction: 0.2,
-                        restitution: 0.6, // 碰撞彈性
+                        restitution: 0.6,
                         frictionAir: 0.01
                     });
                     
-                    // 記錄該方塊在網格中的位置，用於後續計算影片裁切座標 (UV Mapping)
-                    box.gridPos = { r, c };
+                    box.gridPos = { r: r, c: c };
+                    box.renderOpacity = 0; // 初始透明度為 0，用於 Fade-in
                     boxes.push(box);
                     Composite.add(world, box);
                 }
             }
+            if (callback) callback();
         }
 
         // 自定義渲染函數
@@ -202,6 +202,14 @@
                     // 畫出每個方塊
                     for (let box of boxes) {
                         ctx.save();
+                        
+                        // 處理 Fade-in 動畫 (Easing)
+                        if (box.renderOpacity !== undefined && box.renderOpacity < 1) {
+                            box.renderOpacity += (1 - box.renderOpacity) * 0.05; // 0.05 是平滑度
+                            if (box.renderOpacity > 0.99) box.renderOpacity = 1;
+                        }
+                        ctx.globalAlpha = box.renderOpacity !== undefined ? box.renderOpacity : 1;
+
                         ctx.translate(box.position.x, box.position.y);
                         ctx.rotate(box.angle);
 
@@ -222,16 +230,6 @@
                         ctx.restore();
                     }
                 }
-            }
-
-            // 如果有在使用滑鼠拖曳，畫出牽引線 (Debug視覺化)
-            if (mouseConstraint && dragBody) {
-                ctx.beginPath();
-                ctx.moveTo(mouseConstraint.pointA.x, mouseConstraint.pointA.y);
-                ctx.lineTo(dragBody.position.x, dragBody.position.y);
-                ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-                ctx.lineWidth = 2;
-                ctx.stroke();
             }
 
             requestAnimationFrame(renderLoop);
@@ -260,7 +258,9 @@
                 setTimeout(() => uiLayer.style.display = 'none', 500);
 
                 // 建立網格並開始渲染
-                createGrid();
+                createGrid(() => {
+                    appState = 'live';
+                });
                 isLive = true;
                 requestAnimationFrame(renderLoop);
 
@@ -274,7 +274,7 @@
 
         // 處理陀螺儀資料
         function handleOrientation(event) {
-            if (!isFrozen) return; // 只有在墜落後才受陀螺儀影響
+            if (appState !== 'shattered') return; // 只有在墜落後且未被吸走前，才受陀螺儀影響
 
             let gamma = event.gamma; // 左右傾斜 (-90 到 90)
             let beta = event.beta;   // 前後傾斜 (-180 到 180)
@@ -289,51 +289,44 @@
             engine.gravity.y = (beta / 45) * maxGravity;
         }
 
-        // 使用者互動：點擊畫布 -> 畫面定格、破碎與墜落
+        // 點擊事件參數記錄 (用來分辨是純點擊還是滑鼠拖曳)
+        let ptrDownTime = 0;
+        let ptrDownPos = { x: 0, y: 0 };
+        let stateAtPointerDown = '';
+
+        // 使用者互動：點擊畫布 -> 畫面定格破碎 或 觸發引力吸走方塊
         canvas.addEventListener('pointerdown', (e) => {
-            // 如果還沒開始，或者已經定格，則跳過此邏輯
-            if (!isLive || isFrozen) return;
+            ptrDownTime = Date.now();
+            ptrDownPos = { x: e.clientX, y: e.clientY };
+            stateAtPointerDown = appState;
 
-            // 1. 畫面定格：將當前影片影格畫到隱藏的 canvas 上
-            freezeCanvas.width = video.videoWidth;
-            freezeCanvas.height = video.videoHeight;
-            freezeCtx.drawImage(video, 0, 0);
-            isFrozen = true;
+            if (appState === 'live') {
+                // 1. 畫面定格並破碎
+                appState = 'shattered';
 
-            // 2. 啟動物理引擎的預設重力（如果裝置沒有陀螺儀，物件依然會往下掉）
-            engine.gravity.y = 1;
+                freezeCanvas.width = video.videoWidth;
+                freezeCanvas.height = video.videoHeight;
+                freezeCtx.drawImage(video, 0, 0);
+                isFrozen = true;
 
-            // 3. 讓所有方塊變成可動的，並加入隨機亂數方向與速度
-            for (let box of boxes) {
-                Body.setStatic(box, false);
-                
-                // 亂數爆炸力道
-                const forceMagnitude = (0.01 + Math.random() * 0.02) * box.mass;
-                Body.applyForce(box, box.position, {
-                    x: (Math.random() - 0.5) * forceMagnitude,
-                    y: (Math.random() - 0.5) * forceMagnitude * 2 // 向上或向下的爆炸
-                });
+                engine.gravity.y = 1;
 
-                // 亂數旋轉速度
-                Body.setAngularVelocity(box, (Math.random() - 0.5) * 0.3);
-            }
-        });
-
-        // ----------------------------------------------------
-        // 互動限制：桌機版允許滑鼠，手機版禁止手指互動
-        // 這裡透過 e.pointerType === 'mouse' 嚴格篩選只有實體滑鼠能進行拖曳操作
-        // ----------------------------------------------------
-        
-        canvas.addEventListener('pointerdown', (e) => {
-            if (isFrozen && e.pointerType === 'mouse') {
+                for (let box of boxes) {
+                    Body.setStatic(box, false);
+                    
+                    const forceMagnitude = (0.01 + Math.random() * 0.02) * box.mass;
+                    Body.applyForce(box, box.position, {
+                        x: (Math.random() - 0.5) * forceMagnitude,
+                        y: (Math.random() - 0.5) * forceMagnitude * 2
+                    });
+                    Body.setAngularVelocity(box, (Math.random() - 0.5) * 0.3);
+                }
+            } else if (appState === 'shattered' && e.pointerType === 'mouse') {
+                // 如果是破碎狀態且為滑鼠操作，則觸發拖曳檢查
                 const mousePos = { x: e.clientX, y: e.clientY };
-                
-                // 檢查滑鼠點擊位置是否有方塊
                 const bodiesUnder = Matter.Query.point(boxes, mousePos);
                 if (bodiesUnder.length > 0) {
                     dragBody = bodiesUnder[0];
-                    
-                    // 建立滑鼠與物件的彈簧約束
                     mouseConstraint = Constraint.create({
                         pointA: mousePos,
                         bodyB: dragBody,
@@ -347,6 +340,41 @@
             }
         });
 
+        // 觸發黑洞引力吸走舊方塊，然後再生的邏輯
+        function startClearing() {
+            appState = 'clearing';
+            
+            // 移除底部邊界牆壁，讓方塊可以無盡掉落
+            Composite.remove(world, ground);
+            
+            // 施加較平緩的向下引力
+            engine.gravity.x = 0;
+            engine.gravity.y = 1.5; 
+            
+            // 等待方塊墜出畫面後進行重置 (改為 3 秒)
+            setTimeout(() => {
+                // 清除物理世界中的舊方塊
+                Composite.remove(world, boxes);
+                boxes = [];
+                
+                // 加回底部牆壁
+                Composite.add(world, ground);
+                
+                // 重置重力場
+                engine.gravity.x = 0;
+                engine.gravity.y = 0;
+                
+                // 切換回即時攝影機狀態
+                isFrozen = false;
+                appState = 'growing';
+                
+                // 開始生長新的網格方塊
+                createGrid(() => {
+                    appState = 'live'; // 生長完畢後重新回到等待破碎的狀態
+                });
+            }, 3000);
+        }
+
         canvas.addEventListener('pointermove', (e) => {
             // 滑鼠移動時更新彈簧座標
             if (mouseConstraint && e.pointerType === 'mouse') {
@@ -355,7 +383,18 @@
         });
 
         const releaseMouse = (e) => {
-            // 放開滑鼠時解除約束
+            // 放開點擊時判斷：如果在碎裂狀態且滑鼠位移不大（單純 Click 而非 Drag），則觸發清除
+            if (appState === 'shattered' && stateAtPointerDown === 'shattered') {
+                const releasePos = { x: e.clientX, y: e.clientY };
+                const dist = Math.hypot(releasePos.x - ptrDownPos.x, releasePos.y - ptrDownPos.y);
+                const timeDiff = Date.now() - ptrDownTime;
+                
+                if (timeDiff < 400 && dist < 15) {
+                    startClearing();
+                }
+            }
+
+            // 放開滑鼠時解除拖曳約束
             if (mouseConstraint && e.pointerType === 'mouse') {
                 Composite.remove(world, mouseConstraint);
                 mouseConstraint = null;
